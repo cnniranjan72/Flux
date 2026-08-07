@@ -17,20 +17,27 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [demoEmail, setDemoEmail] = useState('');
 
   if (user) return <Navigate to="/" replace />;
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const doLogin = async (mail: string, pass: string, isDemo = false) => {
     setError('');
     setSubmitting(true);
+    if (isDemo) setDemoEmail(mail);
     try {
-      await login(email, password);
+      await login(mail, pass);
     } catch (err: any) {
       setError(err.message || 'Login failed');
+      if (isDemo) setDemoEmail('');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    await doLogin(email, password);
   };
 
   return (
@@ -98,15 +105,15 @@ export default function Login() {
                 <button
                   key={d.email}
                   type="button"
-                  onClick={() => {
-                    setEmail(d.email);
-                    setPassword('password123');
-                    setError('');
-                  }}
-                  className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${d.cls}`}
+                  disabled={submitting}
+                  onClick={() => doLogin(d.email, 'password123', true)}
+                  className={`rounded-lg border px-2 py-1.5 text-left text-xs transition disabled:cursor-wait disabled:opacity-60 ${d.cls}`}
                 >
                   <span className="font-semibold">{d.label}</span>
                   <span className="block opacity-70">{d.email}</span>
+                  {demoEmail === d.email && submitting && (
+                    <span className="mt-0.5 block text-[10px] font-medium text-slate-500">Signing in…</span>
+                  )}
                 </button>
               ))}
             </div>

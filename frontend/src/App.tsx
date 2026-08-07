@@ -12,6 +12,7 @@ import ProductDetail from './pages/ProductDetail';
 import Challans from './pages/Challans';
 import ChallanCreate from './pages/ChallanCreate';
 import ChallanDetail from './pages/ChallanDetail';
+import Users from './pages/Users';
 import NotFound from './pages/NotFound';
 
 function Protected({ roles, children }: { roles?: Role[]; children: ReactNode }) {
@@ -65,6 +66,10 @@ export default function App() {
       <Route
         path="/challans/:id"
         element={<Protected roles={['ADMIN', 'SALES', 'WAREHOUSE']}><ChallanDetail /></Protected>}
+      />
+      <Route
+        path="/users"
+        element={<Protected roles={['ADMIN']}><Users /></Protected>}
       />
 
       <Route path="*" element={<NotFound />} />

@@ -7,6 +7,7 @@ import {
   IconUsers,
   IconBox,
   IconTruck,
+  IconUserCog,
   IconLogout,
   IconMenu,
   IconClose,
@@ -17,6 +18,7 @@ const NAV: { to: string; label: string; icon: ReactNode; roles: Role[] }[] = [
   { to: '/customers', label: 'Customers', icon: <IconUsers size={18} />, roles: ['ADMIN', 'SALES', 'ACCOUNTS'] },
   { to: '/products', label: 'Products', icon: <IconBox size={18} />, roles: ['ADMIN', 'SALES', 'WAREHOUSE'] },
   { to: '/challans', label: 'Sales Challans', icon: <IconTruck size={18} />, roles: ['ADMIN', 'SALES', 'WAREHOUSE'] },
+  { to: '/users', label: 'Users', icon: <IconUserCog size={18} />, roles: ['ADMIN'] },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {

@@ -227,24 +227,47 @@ Base URL: `http://localhost:5000/api`. All routes except `POST /auth/login` requ
 
 ## Deployment
 
-> You can deploy without Docker on free tiers: **Render** (backend + Postgres) and **Vercel** (frontend).
+> You can deploy without Docker on free tiers: **Render** (backend) + **Vercel** (frontend) + **Neon** (PostgreSQL).
 
-### Backend → Render (or Railway/Fly.io)
-1. Push the repo to GitHub.
-2. In Render: **New → Web Service**, connect the repo, root directory `backend`.
-3. Build command: `npm install && npx prisma migrate deploy && npm run build`
-4. Start command: `npm start`
-5. Env vars: `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN` (your frontend URL).
-6. Optionally create a **Render Postgres** and run `npx prisma migrate deploy && npx prisma db seed` locally against that URL.
+### Production database → Neon (PostgreSQL, free)
 
-### Database → Neon / Supabase / Render Postgres
-- Create a free database, copy the connection string into `DATABASE_URL`.
-- Run migrations against it: `cd backend && npx prisma migrate deploy` (and seed once).
+Neon is fully managed PostgreSQL, so it satisfies the PostgreSQL requirement and needs no local server.
+
+1. Create a project at [neon.tech](https://neon.tech) and copy the **pooled connection string** (starts with `postgresql://...?sslmode=require`).
+2. Apply migrations and seed **once** (from your machine):
+
+   ```bash
+   cd backend
+   export DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"
+   npx prisma migrate deploy
+   npx prisma db seed
+   ```
+
+   Migrations and seed have already been run against the Neon database used by this project.
+
+### Backend → Render (blueprint, minimal clicks)
+
+`render.yaml` is committed at the repo root, so Render builds the backend automatically:
+
+1. On [render.com](https://render.com): **New → Blueprint** → select the `Flux` repo.
+2. Render reads `render.yaml`, provisions the `erp-crm-backend` web service (free).
+3. In the service → **Environment**, set three values (never commit these):
+   - `DATABASE_URL` → your Neon pooled connection string
+   - `JWT_SECRET` → a long random string (e.g. `openssl rand -hex 32`)
+   - `CORS_ORIGIN` → `https://<your-frontend>.vercel.app`
+4. Click **Apply**. Render runs `npx prisma migrate deploy && npm start` and the API is live at `https://erp-crm-backend.onrender.com`.
+
+> Free-tier Render instances sleep after inactivity; the first request may take ~30s to wake.
 
 ### Frontend → Vercel
-1. **Import** the repo in Vercel; set Root Directory to `frontend`.
-2. Build command: `npm run build`; output: `dist`.
-3. Env var: `VITE_API_URL=https://<your-backend>.onrender.com/api`.
+
+1. On [vercel.com](https://vercel.com): **Add New → Project** → import the `Flux` repo.
+2. Vercel auto-detects Vite (`vercel.json` is committed). Leave defaults.
+3. Add env var: `VITE_API_URL=https://erp-crm-backend.onrender.com/api`.
+4. Deploy. Live at `https://flux-<your-name>.vercel.app`.
+
+### CI
+GitHub Actions (`.github/workflows/ci.yml`) typechecks the backend and builds the frontend on every push to `main`.
 
 ### Docker (full stack)
 A `Dockerfile` is included in `backend/`. For a one-command local stack:

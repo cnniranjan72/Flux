@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+
+# environment (keep .env.example committed)
+.env
+.env.local
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# docker
+docker/volumes/

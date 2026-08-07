@@ -1,0 +1,23 @@
+# Render Blueprint — one-click deploy of the backend
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: erp-crm-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # Set these in the Render dashboard (never commit real values):
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://<your-frontend>.vercel.app

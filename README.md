@@ -1,6 +1,30 @@
 # Mini ERP + CRM Operations Portal
 
-A full-stack ERP/CRM system for a wholesale/distribution company — built with **Node.js, Express, TypeScript, Prisma, PostgreSQL** (backend) and **React, Vite, Tailwind CSS** (frontend). It covers role-based authentication, customer CRM, product/inventory management with a stock-movement ledger, and a sales challan flow with automatic stock deduction.
+A full-stack ERP/CRM system for a wholesale/distribution company — built with **Node.js, Express, TypeScript, Prisma, PostgreSQL** (backend) and **React, Vite, Tailwind CSS** (frontend). It covers role-based authentication, customer CRM, product/inventory management with a stock-movement ledger, and a sales challan flow with automatic stock deduction and PDF invoice export.
+
+> **Live demo:** [http://52.90.161.120](http://52.90.161.120) (AWS EC2) — see [Deployment](#deployment) and [docs/deployment.md](docs/deployment.md).
+
+---
+
+## Table of Contents
+
+- [Tech Stack](#tech-stack)
+- [Features](#features)
+- [Architecture](#architecture)
+  - [System Overview](#system-overview)
+  - [Database Model (ERD)](#database-model-erd)
+  - [Authentication Flow](#authentication-flow)
+  - [Challan Lifecycle](#challan-lifecycle)
+- [Getting Started (Local)](#getting-started-local)
+- [Test Credentials](#test-credentials)
+- [API Endpoints](#api-endpoints)
+- [Documentation](#documentation)
+- [Deployment](#deployment)
+- [Environment Variables](#environment-variables)
+- [Postman Collection](#postman-collection)
+- [Design Decisions](#design-decisions)
+- [Assumptions & Known Limitations](#assumptions--known-limitations)
+- [Project Status](#project-status)
 
 ---
 
@@ -12,19 +36,21 @@ A full-stack ERP/CRM system for a wholesale/distribution company — built with 
 | Database   | PostgreSQL, Prisma ORM                                  |
 | Auth       | JWT (jsonwebtoken) + bcrypt                             |
 | Validation | zod (input validation on every endpoint)                |
+| PDF        | pdfkit (invoice export)                                 |
 | Frontend   | React 18 + Vite + TypeScript                            |
 | Styling    | Tailwind CSS v4                                         |
 | Routing    | React Router v6                                         |
-| Infra      | Docker Compose (Postgres), deployable on Render + Vercel |
+| Infra      | Docker Compose (Postgres), AWS EC2 + nginx, Render + Vercel |
 
 ---
 
 ## Features
 
 ### 1. Authentication & Roles (JWT)
-- Login, admin-only user registration, `GET /auth/me` session check.
+- Login, **admin-only** user registration, `GET /auth/me` session check.
 - Roles: `ADMIN`, `SALES`, `WAREHOUSE`, `ACCOUNTS`.
 - Middleware `authMiddleware` + `roleGuard` protect every route; the UI hides/redirects based on role.
+- **User management screen** (Admin only): create accounts with role picker, activate/deactivate.
 
 ### 2. Customer CRM
 - Full CRUD: name, mobile, email, business name, GST (optional), type (Retail/Wholesale/Distributor), address, status (Lead/Active/Inactive), follow-up date, notes.
@@ -43,6 +69,7 @@ A full-stack ERP/CRM system for a wholesale/distribution company — built with 
 - Auto-generated challan numbers (`CH-1001`, `CH-1002`, ...).
 - **Product snapshot** stored at creation time (name, SKU, category, unit price, stock) — not just IDs.
 - Confirmation **deducts stock in a transaction**, creates `OUT` stock movements, and **rejects if stock would go negative** with a per-product error message.
+- **PDF invoice export** for any challan (SALES INVOICE when confirmed, PROFORMA INVOICE when draft).
 - Draft challans can be confirmed (Sales/Warehouse/Admin) or cancelled (Sales/Admin).
 - List with status filter + pagination; detail view with snapshot + itemized amounts.
 
@@ -50,15 +77,107 @@ A full-stack ERP/CRM system for a wholesale/distribution company — built with 
 
 ## Architecture
 
+### System Overview
+
+```mermaid
+flowchart LR
+    subgraph Client
+        B[Browser - React SPA]
+    end
+
+    subgraph Backend["Backend (Node/Express/TS)"]
+        R[Routes]
+        M[Middleware: auth / roleGuard / zod]
+        L[Lib: invoice, prisma, schemas]
+        PDF[PDF Generator - pdfkit]
+    end
+
+    subgraph Data["PostgreSQL (Neon / local Docker)"]
+        DB[(Database)]
+    end
+
+    B -- "REST JSON + JWT Bearer" --> R
+    R --> M
+    R --> L
+    L --> PDF
+    M --> DB
+    L --> DB
+    PDF -.-> B
 ```
-frontend (React/Vite/Tailwind, Vercel)
-        │  REST JSON + JWT Bearer token
-        ▼
-backend (Express/TypeScript, Render/Railway)
-  routes → controllers(hooks) → services(logic)   ← zod validation middleware
-        │
-        ▼
-  Prisma Client → PostgreSQL (Neon/Supabase/Render)
+
+### Database Model (ERD)
+
+```mermaid
+erDiagram
+    USER ||--o{ CHALLAN : "createdBy"
+    USER ||--o{ STOCK_MOVEMENT : "createdBy"
+    USER ||--o{ FOLLOW_UP : "createdBy"
+    CUSTOMER ||--o{ CHALLAN : ""
+    CUSTOMER ||--o{ FOLLOW_UP : ""
+    PRODUCT ||--o{ STOCK_MOVEMENT : ""
+    PRODUCT ||--o{ CHALLAN_ITEM : ""
+    CHALLAN ||--o{ CHALLAN_ITEM : ""
+    CHALLAN {
+        string id PK
+        string challanNumber UK
+        string status "DRAFT | CONFIRMED | CANCELLED"
+        int totalQuantity
+        json productSnapshot
+    }
+    CHALLAN_ITEM {
+        string id PK
+        string challanId FK
+        string productId FK
+        int quantity
+        float price
+    }
+    STOCK_MOVEMENT {
+        string id PK
+        string productId FK
+        int quantityChanged
+        string movementType "IN | OUT"
+        string reason
+    }
+```
+
+### Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend (React)
+    participant B as Backend (Express)
+    participant D as PostgreSQL
+
+    U->>F: Enter credentials (or click persona)
+    F->>B: POST /api/auth/login { email, password }
+    B->>D: Find user by email
+    alt user not found / bad password
+        B-->>F: 401 Invalid credentials
+    else valid
+        B->>B: bcrypt.compare + sign JWT
+        B-->>F: 200 { token, user }
+        F->>F: store token (localStorage)
+    end
+    F->>B: GET /api/auth/me (Bearer token)
+    B->>B: verify JWT
+    B-->>F: 200 { user } | 401
+```
+
+### Challan Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: create (ADMIN/SALES)
+    DRAFT --> CONFIRMED: confirm (ADMIN/SALES/WAREHOUSE)
+    DRAFT --> CANCELLED: cancel (ADMIN/SALES)
+    CONFIRMED --> [*]: stock deducted, OUT movements created
+    CANCELLED --> [*]
+
+    note right of CONFIRMED
+        Stock deduction happens in a single
+        DB transaction; rejected if negative.
+    end note
 ```
 
 **Backend layout**
@@ -68,7 +187,7 @@ backend/
 ├── src/
 │   ├── middleware/   auth.ts, error.ts, validate.ts
 │   ├── routes/       auth, customers, products, challans, users, dashboard
-│   ├── lib/          prisma.ts, schemas.ts (zod)
+│   ├── lib/          prisma.ts, schemas.ts (zod), invoice.ts (pdfkit), invoice-format.ts
 │   ├── app.ts        express app + error handling
 │   └── server.ts     entry point
 ├── prisma/
@@ -84,11 +203,12 @@ backend/
 ```
 frontend/
 ├── src/
-│   ├── pages/        Login, Dashboard, Customers, CustomerDetail,
-│   │                 Products, ProductDetail, Challans, ChallanCreate, ChallanDetail
-│   ├── components/   Modal, Badge, Spinner, Pagination, Layout
+│   ├── pages/        Login, Dashboard, Customers, CustomerDetail, Products,
+│   │                 ProductDetail, Challans, ChallanCreate, ChallanDetail, Users
+│   ├── components/   Layout, Badge, Pagination, icons
+│   │   └── ui/       Button, Form, Modal (incl. ConfirmDialog), Toast, Layout helpers
 │   ├── hooks/        useAuth (auth context)
-│   ├── lib/          api.ts (fetch wrapper)
+│   ├── lib/          api.ts (fetch wrapper, downloadBlob)
 │   ├── App.tsx       protected + role-guarded routes
 │   └── main.tsx
 └── .env.example
@@ -103,8 +223,8 @@ Prerequisites: Node.js 18+, Docker (for Postgres), or an existing PostgreSQL ins
 ### 1. Clone & install
 
 ```bash
-git clone <your-repo-url>
-cd erp-crm
+git clone https://github.com/cnniranjan72/Flux.git
+cd Flux
 
 # Backend
 cd backend
@@ -173,13 +293,13 @@ All users use password **`password123`**:
 Role-based access notes:
 - **Sales** can create/confirm challans; **Warehouse** can confirm; **Accounts** cannot (API returns 403).
 - **Warehouse** cannot access the Customers module in the UI.
-- Only **Admin** can register new users.
+- Only **Admin** can register new users (via the Users page or `POST /api/auth/register`).
 
 ---
 
 ## API Endpoints
 
-Base URL: `http://localhost:5000/api`. All routes except `POST /auth/login` require `Authorization: Bearer <token>`.
+Base URL: `http://localhost:5000/api` (or `https://<backend-host>/api`). All routes except `POST /auth/login` require `Authorization: Bearer <token>`.
 
 ### Auth
 | Method | Endpoint          | Access        | Description                  |
@@ -191,7 +311,7 @@ Base URL: `http://localhost:5000/api`. All routes except `POST /auth/login` requ
 ### Customers
 | Method | Endpoint                          | Description                                  |
 |--------|-----------------------------------|----------------------------------------------|
-| GET    | `/customers`                      | List + `?search=` `?status=` `?skip=` `?take=` |
+| GET    | `/customers`                      | List + `?search=` `?status=` `?type=` `?skip=` `?take=` |
 | GET    | `/customers/:id`                  | Detail incl. follow-ups + challans           |
 | POST   | `/customers`                      | Create customer                              |
 | PUT    | `/customers/:id`                  | Update customer                              |
@@ -215,67 +335,62 @@ Base URL: `http://localhost:5000/api`. All routes except `POST /auth/login` requ
 | GET    | `/challans/:id`              | Any authed                   | Detail incl. items + customer            |
 | PUT    | `/challans/:id/confirm`      | Admin, Sales, Warehouse      | Deduct stock, create OUT movements       |
 | PUT    | `/challans/:id/cancel`       | Admin, Sales                 | Cancel (draft only)                      |
+| GET    | `/challans/:id/invoice`      | Any authed                   | Download PDF invoice (binary/pdf)        |
 
 ### Misc
 | Method | Endpoint            | Access     | Description                 |
 |--------|---------------------|------------|-----------------------------|
-| GET    | `/dashboard/summary`| Any authed | KPIs, recent challans, due follow-ups |
+| GET    | `/dashboard/summary`| Any authed | KPIs, 7-day trend, recent challans, due follow-ups, low-stock |
 | GET    | `/users`            | Admin      | List users                  |
-| GET    | `/health`           | Public     | Health check                |
+| PUT    | `/users/:id/active` | Admin      | Activate/deactivate a user  |
+| GET    | `/health`           | Public     | Health check (no `/api` prefix) |
+
+> Full request/response examples for every endpoint: **[docs/api-docs.md](docs/api-docs.md)**
+
+---
+
+## Documentation
+
+| Doc                             | What it covers                                        |
+|---------------------------------|-------------------------------------------------------|
+| [docs/api-docs.md](docs/api-docs.md)   | Every endpoint: methods, auth, query params, request/response bodies, error codes |
+| [docs/deployment.md](docs/deployment.md) | Local, Neon, Render/Vercel, **AWS EC2**, nginx, CI/CD, cost notes |
+| [docs/smoke-test.ps1](docs/smoke-test.ps1) | PowerShell end-to-end smoke test                     |
+| [docs/erp-crm.postman_collection.json](docs/erp-crm.postman_collection.json) | Postman collection with auto-token                     |
 
 ---
 
 ## Deployment
 
-> You can deploy without Docker on free tiers: **Render** (backend) + **Vercel** (frontend) + **Neon** (PostgreSQL).
+> The app is currently **live on AWS EC2** at [http://52.90.161.120](http://52.90.161.120) with PostgreSQL on Neon. Full walkthrough, including the alternative free Render/Vercel route, is in **[docs/deployment.md](docs/deployment.md)**.
 
-### Production database → Neon (PostgreSQL, free)
+**Quick overview:**
 
-Neon is fully managed PostgreSQL, so it satisfies the PostgreSQL requirement and needs no local server.
+```mermaid
+flowchart LR
+    U[Browser] --> NG["nginx :80"]
+    NG --> SPA["/static frontend (React build)"]
+    NG --> API["/api -> localhost:5000 (Node/Express)"]
+    API --> NEO["Neon PostgreSQL (managed)"]
+```
 
-1. Create a project at [neon.tech](https://neon.tech) and copy the **pooled connection string** (starts with `postgresql://...?sslmode=require`).
-2. Apply migrations and seed **once** (from your machine):
+**Current production stack:**
+- **Compute:** AWS EC2 `t3.micro` (Ubuntu 24.04) in `us-east-1` — within free tier.
+- **Web server:** nginx (serves the built React SPA and reverse-proxies `/api/*`).
+- **Process manager:** systemd unit `flux-api`.
+- **Database:** Neon PostgreSQL (migrations + seed already applied).
+- **CI:** GitHub Actions `.github/workflows/ci.yml` (backend typecheck + frontend build on every push).
 
-   ```bash
-   cd backend
-   export DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"
-   npx prisma migrate deploy
-   npx prisma db seed
-   ```
-
-   Migrations and seed have already been run against the Neon database used by this project.
-
-### Backend → Render (blueprint, minimal clicks)
-
-`render.yaml` is committed at the repo root, so Render builds the backend automatically:
-
-1. On [render.com](https://render.com): **New → Blueprint** → select the `Flux` repo.
-2. Render reads `render.yaml`, provisions the `erp-crm-backend` web service (free).
-3. In the service → **Environment**, set three values (never commit these):
-   - `DATABASE_URL` → your Neon pooled connection string
-   - `JWT_SECRET` → a long random string (e.g. `openssl rand -hex 32`)
-   - `CORS_ORIGIN` → `https://<your-frontend>.vercel.app`
-4. Click **Apply**. Render runs `npx prisma migrate deploy && npm start` and the API is live at `https://erp-crm-backend.onrender.com`.
-
-> Free-tier Render instances sleep after inactivity; the first request may take ~30s to wake.
-
-### Frontend → Vercel
-
-1. On [vercel.com](https://vercel.com): **Add New → Project** → import the `Flux` repo.
-2. Vercel auto-detects Vite (`vercel.json` is committed). Leave defaults.
-3. Add env var: `VITE_API_URL=https://erp-crm-backend.onrender.com/api`.
-4. Deploy. Live at `https://flux-<your-name>.vercel.app`.
-
-### CI
-GitHub Actions (`.github/workflows/ci.yml`) typechecks the backend and builds the frontend on every push to `main`.
-
-### Docker (full stack)
-A `Dockerfile` is included in `backend/`. For a one-command local stack:
+### One-line redeploy (current EC2 setup)
 
 ```bash
-cd backend && docker compose up -d   # Postgres only (used above)
-# or build the API image: docker build -t erp-backend .
+ssh -i <key.pem> ubuntu@52.90.161.120 \
+  "cd /opt/erp-crm && git pull && cd backend && npm run build && cd ../frontend && npm run build && sudo systemctl restart flux-api"
 ```
+
+### Alternatives
+- **Render + Vercel + Neon** — zero-cost serverless-friendly route (`render.yaml` + `frontend/vercel.json` committed).
+- **Docker** — `backend/Dockerfile` + `docker-compose.yml` for local/containerized deploys.
 
 ---
 
@@ -300,43 +415,30 @@ Import [`docs/erp-crm.postman_collection.json`](docs/erp-crm.postman_collection.
 
 ---
 
-## Data Model
+## Design Decisions
 
-```
-User ─┬─< StockMovement
-      ├─< Challan  (createdBy)
-      └─< FollowUp  (createdBy)
-
-Customer ─┬─< Challan
-          └─< FollowUp
-
-Product ─┬─< StockMovement
-         └─< ChallanItem
-
-Challan ─< ChallanItem        Challan.productSnapshot = JSON
-                                (name, sku, category, price, stock at time)
-```
-
-Key design decisions:
 - **`productSnapshot` JSON** on `Challan` preserves the product details (especially price) as they were when the challan was created — later edits to the product do not rewrite history.
 - **Stock movements are append-only**; stock is never edited directly except through movement transactions. Confirming a challan deducts stock and writes an `OUT` movement in the **same DB transaction**.
+- **Auto challan numbering** is computed inside a transaction with collision fallback (`CH-1001` + count).
 - Enum constraints (role, status, movement type) enforced at the database layer.
+- **Public registration is disabled** — accounts are created by admins only, so a self-signed role like `ADMIN` is impossible.
 
 ---
 
 ## Assumptions & Known Limitations
 
 - **Single-currency** (`₹`) pricing; amounts stored as float for simplicity.
-- Challan snapshot records price & stock but not per-line taxes; invoices/PDF export are out of scope.
+- Challan snapshot records price & stock but not per-line taxes.
 - No image upload for products (SKU-based tracking only).
 - Email notifications / password reset are out of scope.
 - Confirmed challans cannot be un-confirmed (no reversal flow) — cancelling is limited to drafts.
 - Pagination is offset-based (`skip`/`take`), capped at 100 per page.
+- The live EC2 instance serves over **HTTP**; HTTPS via ACM + CloudFront is a future option.
 
 ---
 
 ## Project Status
 
-- Backend: **all endpoints implemented, validated (zod), role-guarded, and smoke-tested** (login, CRUD, search, stock IN/OUT, negative-stock rejection, draft→confirm→stock deduction, cancel).
+- Backend: **all endpoints implemented, validated (zod), role-guarded, and smoke-tested** (login, CRUD, search, stock IN/OUT, negative-stock rejection, draft→confirm→stock deduction, cancel, PDF invoice).
 - Frontend: **all pages implemented, typechecks, and builds** (`npm run build`).
-- Verified end-to-end locally: backend `:5000` + frontend `:5173` with CORS enabled.
+- Deployment: **live on AWS EC2 + Neon** and verified end-to-end (login, dashboard, users, invoice PDF).

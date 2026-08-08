@@ -2,7 +2,8 @@
 
 A full-stack ERP/CRM system for a wholesale/distribution company — built with **Node.js, Express, TypeScript, Prisma, PostgreSQL** (backend) and **React, Vite, Tailwind CSS** (frontend). It covers role-based authentication, customer CRM, product/inventory management with a stock-movement ledger, and a sales challan flow with automatic stock deduction and PDF invoice export.
 
-> **Live demo:** [http://52.90.161.120](http://52.90.161.120) (AWS EC2) — see [Deployment](#deployment) and [docs/deployment.md](docs/deployment.md).
+> **Live demo:** [http://52.90.161.120](http://52.90.161.120) (AWS EC2)
+> **Docs:** [Fern docs](https://niranjan-c-n.docs.buildwithfern.com/erp-crm-operations-portal/introduction) · [GitHub Pages](https://cnniranjan72.github.io/Flux/) · [docs/deployment.md](docs/deployment.md)
 
 ---
 
@@ -351,6 +352,13 @@ Base URL: `http://localhost:5000/api` (or `https://<backend-host>/api`). All rou
 
 ## Documentation
 
+**Hosted docs:**
+
+- [Fern docs](https://niranjan-c-n.docs.buildwithfern.com/erp-crm-operations-portal/introduction) — interactive documentation portal
+- [GitHub Pages](https://cnniranjan72.github.io/Flux/) — VitePress site (Overview, API Reference, Deployment Guide)
+
+**In-repo docs:**
+
 | Doc                             | What it covers                                        |
 |---------------------------------|-------------------------------------------------------|
 | [docs/api-docs.md](docs/api-docs.md)   | Every endpoint: methods, auth, query params, request/response bodies, error codes |
@@ -412,6 +420,8 @@ ssh -i <key.pem> ubuntu@52.90.161.120 \
 ## Postman Collection
 
 Import [`docs/erp-crm.postman_collection.json`](docs/erp-crm.postman_collection.json). It includes a `base_url` and `token` collection variable — run **Login** first (it saves the token automatically via the test script), then every other request works out of the box.
+
+Published API reference: [Fern docs — API Reference](https://niranjan-c-n.docs.buildwithfern.com/erp-crm-operations-portal/introduction)
 
 ---
 

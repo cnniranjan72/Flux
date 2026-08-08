@@ -64,7 +64,7 @@ flowchart LR
 
 ## Test Credentials
 
-All accounts use password **`password123`**:
+All accounts use password **`password123`** (see the [live app](http://52.90.161.120)):
 
 | Role       | Email               |
 |------------|---------------------|

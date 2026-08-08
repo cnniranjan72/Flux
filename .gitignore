@@ -21,3 +21,13 @@ Thumbs.db
 
 # docker
 docker/volumes/
+
+# docs site build output
+docsite/docs/.vitepress/cache/
+docsite/docs/.vitepress/dist/
+docsite/docs/api-docs.md
+docsite/docs/deployment.md
+docsite/docs/overview.md
+
+# working notes (not for submission)
+roadmap.md
